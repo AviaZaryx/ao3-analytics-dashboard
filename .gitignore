@@ -1,0 +1,7 @@
+# Python caches
+__pycache__/
+*.pyc
+.idea/
+
+# Ignore ALL CSV files everywhere
+*.csv
