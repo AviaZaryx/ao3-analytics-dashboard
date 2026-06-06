@@ -1,51 +1,91 @@
 import plotly.express as px
-from .styles import AO3_RED, NSFW_COLOR_MAP, EMOTION_COLORS
+from .styles import AO3_RED, NSFW_COLOR_MAP, EMOTION_COLORS, SFW_BLUE, NSFW_PINK
 from wordcloud import WordCloud
-import numpy as np
-from PIL import Image
-import matplotlib.pyplot as plt
 import random
 import plotly.graph_objects as go
+import os
+import numpy as np
+from PIL import Image, ImageDraw
+
 
 def create_tag_bar_chart(tag_df, metric):
-    if tag_df is None: return px.bar(title="No Data")
+    if tag_df is None or tag_df.empty:
+        return px.bar(title="No Data")
 
-    dynamic_height = 400 + (len(tag_df) * 25)
+    metric_label = metric.replace('_', ' ').title()
+
+    num_rows = len(tag_df)
+    dynamic_height = max(400, (num_rows * 35) + 100)
+
     fig = px.bar(
-        tag_df, x=metric, y='tag', orientation='h',
-        color_discrete_sequence=[AO3_RED], height=dynamic_height
+        tag_df,
+        x='total',
+        y='tag',
+        orientation='h',
+        color='average',
+        color_continuous_scale='Reds',
+        height=dynamic_height,
+        labels={'total': f'Total {metric_label}', 'average': f'Avg {metric_label}'},
+        hover_data={'tag': True, 'total': ':,', 'average': ':.2f'}
     )
-    fig.update_layout(yaxis={'categoryorder': 'total ascending', 'dtick': 1},
-                      xaxis={'tickformat': ','}, template="simple_white")
+
+    fig.update_layout(
+        bargap=0.2,
+
+        yaxis={
+            'categoryorder': 'total ascending',
+            'dtick': 1,
+            'automargin': True
+        },
+        xaxis={'tickformat': ','},
+        template="simple_white",
+        coloraxis_colorbar=dict(
+            title=f"Avg {metric_label}",
+            thicknessmode="pixels",
+            thickness=20,
+            lenmode="fraction",
+            len=1.0,
+            yanchor="middle",
+            y=0.5
+        ),
+        margin=dict(l=50, r=20, t=50, b=50),
+        autosize=True
+    )
+
     return fig
 
 
-def create_fandom_stacked_chart(stats_df, top_fandoms_order):
+def create_fandom_stacked_chart(stats_df, top_fandoms_order, mode="count"):
     if stats_df is None or stats_df.empty:
-        return px.bar(title="No Data")
+        return px.bar(title="No Data Available")
 
-    top_fandoms_order = [str(x) for x in top_fandoms_order]
+    color_map = {'SFW': SFW_BLUE, 'NSFW': NSFW_PINK}
+
+    is_percent = (mode == "relative")
+    y_val = 'percentage' if is_percent else 'count'
 
     fig = px.bar(
         stats_df,
         x='fandom',
-        y='count',
+        y=y_val,
         color='is_nsfw',
-        color_discrete_map=NSFW_COLOR_MAP,
-        category_orders={"fandom": top_fandoms_order},
-        title="Top Fandoms: SFW vs NSFW Content Split"
+        color_discrete_map=color_map,
+        category_orders={"fandom": [str(f) for f in top_fandoms_order]},
+        hover_data={'fandom': True, 'count': ':,', 'percentage': ':.1f', 'is_nsfw': False}
     )
 
     fig.update_layout(
         template="simple_white",
         barmode='stack',
-        xaxis={'tickangle': -45},
-        xaxis_title="Fandom",
-        yaxis_title="Number of Works",
-        legend_title="Content Type"
+        xaxis={'tickangle': -45, 'title': ''},
+        yaxis_title="Percentage (%)" if is_percent else "Number of Works",
+        legend_title="",
+        margin=dict(l=20, r=20, t=30, b=20),
+        height=500
     )
 
-    fig.update_xaxes(type='category')
+    if is_percent:
+        fig.update_yaxes(range=[0, 100])
 
     return fig
 
@@ -53,14 +93,18 @@ def ao3_color_func(word, font_size, position, orientation, random_state=None, **
     return f"hsl(0, {random.randint(80, 100)}%, {random.randint(30, 45)}%)"
 
 
-def get_word_cloud_object(tag_df, metric, mask_image=None, high_res=False):
+def get_word_cloud_object(tag_df, mask_type, logo_path=None, high_res=False):
     if tag_df is None or tag_df.empty:
         return None
-    data_dict = dict(zip(tag_df['tag'], tag_df[metric]))
 
+    data_dict = dict(zip(tag_df['tag'], tag_df['total']))
+
+    w, h = (3840, 2160) if high_res else (1200, 900)
     mask = None
-    if mask_image is not None:
-        img = Image.open(mask_image).convert("RGBA")
+
+    if mask_type == "AO3 Logo" and logo_path and os.path.exists(logo_path):
+        img = Image.open(logo_path).convert("RGBA")
+        img = img.resize((w, h), Image.Resampling.LANCZOS)
         mask_np = np.array(img)
         final_mask = np.ones(mask_np.shape[:2], dtype=np.uint8) * 255
         is_opaque = mask_np[:, :, 3] > 30
@@ -68,7 +112,14 @@ def get_word_cloud_object(tag_df, metric, mask_image=None, high_res=False):
         final_mask[is_opaque & is_not_white] = 0
         mask = final_mask
 
-    w, h = (3840, 2160) if high_res else (1200, 900)
+    elif mask_type == "Simple Circle":
+        # Create a circular mask
+        mask = np.full((h, w), 255, dtype=np.uint8)
+        center = (w // 2, h // 2)
+        radius = min(h, w) // 2 - 20
+        y, x = np.ogrid[:h, :w]
+        dist_from_center = np.sqrt((x - center[0]) ** 2 + (y - center[1]) ** 2)
+        mask[dist_from_center <= radius] = 0
 
     return WordCloud(
         background_color="white",
@@ -335,4 +386,46 @@ def create_fandom_evolution_chart(evo_df):
         template="simple_white"
     )
     fig.update_layout(xaxis_title="Year", yaxis_title="Works Posted/Updated")
+    return fig
+
+
+def create_cluster_scatter_plot(df, percentage):
+    if df is None or df.empty or 'pca_x' not in df.columns or df['pca_x'].isna().all():
+        return px.scatter(title="Cluster Data Unavailable. Run ml_pipeline.py first.")
+
+    # 1. Filter out rows without cluster data
+    plot_df = df.dropna(subset=['pca_x', 'pca_y', 'cluster']).copy()
+
+    percentage = int("".join(list(percentage)[0:-1]))
+
+    points = round((percentage/100) * len(plot_df))
+
+    if len(plot_df) > points:
+        plot_df = plot_df.sample(points, random_state=42)
+
+    # 3. Format data for tooltips
+    plot_df['cluster'] = "Cluster " + plot_df['cluster'].astype(int).astype(str)
+    plot_df['short_tags'] = plot_df['additional_tags'].astype(str).str.slice(0, 80) + "..."
+
+    # 4. Create Plot
+    fig = px.scatter(
+        plot_df,
+        x='pca_x',
+        y='pca_y',
+        color='cluster',
+        hover_data={'pca_x': False, 'pca_y': False, 'fandom': True, 'short_tags': True, 'cluster': False},
+        title="Semantic Landscape of Works (PCA Reduced Embeddings)",
+        opacity=0.7,
+        color_discrete_sequence=px.colors.qualitative.Pastel
+    )
+
+    fig.update_layout(
+        template="simple_white",
+        xaxis=dict(title="PCA Component 1", showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(title="PCA Component 2", showgrid=False, zeroline=False, showticklabels=False),
+        margin=dict(l=20, r=20, t=50, b=20),
+        legend_title="Semantic Group",
+        height=1000
+    )
+
     return fig

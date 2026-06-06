@@ -27,38 +27,40 @@ def filter_by_inputs(df, fandom_selection, date_range, nsfw_filter):
 
 
 def get_tag_stats(df, metric, top_n):
-    """Returns a DataFrame of the top N tags."""
     if df is None or df.empty: return None
 
     tags_df = df[df['additional_tags'].notna() & (df['additional_tags'] != "None")].copy()
     tags_expanded = tags_df.assign(tag=tags_df['additional_tags'].str.split(', ')).explode('tag')
     tags_expanded['tag'] = tags_expanded['tag'].str.strip()
 
-    return (tags_expanded.groupby('tag')[metric].sum()
-            .sort_values(ascending=False).head(top_n).reset_index())
+    stats = (tags_expanded.groupby('tag')[metric]
+             .agg(['sum', 'mean'])
+             .reset_index())
+
+    stats.columns = ['tag', 'total', 'average']
+
+    return stats.sort_values(by='total', ascending=False).head(top_n)
 
 
 def get_fandom_split_stats(df, top_n):
-    """Returns a DataFrame of SFW/NSFW counts per fandom."""
-    if df is None or df.empty: return None, []
+    """Returns a DataFrame of SFW/NSFW counts and percentages per fandom."""
+    if df is None or df.empty:
+        return pd.DataFrame(columns=['fandom', 'is_nsfw', 'count', 'percentage']), []
 
-    # 1. Get the top N fandoms based on current filter
+    # 1. Get top N fandoms
     top_fandoms = df['fandom'].value_counts().head(top_n).index.tolist()
-
-    # 2. Filter to only those fandoms
     dff = df[df['fandom'].isin(top_fandoms)].copy()
 
-    if hasattr(dff['fandom'], 'cat'):
-        dff['fandom'] = dff['fandom'].cat.remove_unused_categories()
-
-    # 3. Group and count
+    # 2. Group and count
     stats = dff.groupby(['fandom', 'is_nsfw'], observed=True).size().reset_index(name='count')
 
-    # 4. Map boolean to labels
+    # 3. Map boolean to labels
     stats['is_nsfw'] = stats['is_nsfw'].map({True: 'NSFW', False: 'SFW'})
 
-    return stats, top_fandoms
+    # 4. Calculate Percentage (This is usually where the "cannot load" error happens)
+    stats['percentage'] = stats.groupby('fandom')['count'].transform(lambda x: (x / x.sum() * 100))
 
+    return stats, top_fandoms
 def get_correlation_data(df, metric, top_n=15):
     if df is None or df.empty:
         return None

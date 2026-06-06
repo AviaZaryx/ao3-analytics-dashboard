@@ -4,6 +4,7 @@ import os
 from shiny import App, render, ui, reactive
 from shinywidgets import output_widget, render_widget
 from datetime import timedelta
+import matplotlib.pyplot as plt
 
 # Import modules
 from utils.data_loader import load_clean_data
@@ -11,7 +12,7 @@ from utils.data_processing import filter_by_inputs, get_tag_stats, get_fandom_sp
     get_emotion_stats, get_emotional_radar_data, get_time_series_stats, get_fandom_over_time
 from utils.charts import create_tag_bar_chart, create_fandom_stacked_chart, get_word_cloud_object, \
     create_correlation_heatmap, create_emotion_bar_chart, create_emotion_radar_chart, create_sentiment_success_plot, \
-    create_fandom_evolution_chart, create_metric_over_time_chart
+    create_fandom_evolution_chart, create_metric_over_time_chart, create_cluster_scatter_plot
 from utils.styles import CSS
 
 # --- INITIALIZATION ---
@@ -21,76 +22,6 @@ NSFW_PATH = os.path.join(BASE_DIR, "data", "nsfw", "nsfw_works.csv")
 LOGO_PATH = r"D:\Downloads\DataVisProj2\Logo_Archive_of_Our_Own.svg.png"
 
 df, fandom_map, min_date_val, max_date_val = load_clean_data(DATA_PATH, NSFW_PATH)
-
-if min_date_val == max_date_val:
-    print("WARNING: Min and Max dates are equal. Adjusting to prevent crash.")
-    max_date_val = min_date_val + timedelta(days=1)
-
-# --- JAVASCRIPT ---
-js_logic = """
-Shiny.addCustomMessageHandler('prepare_image', function(message) {
-    const base64Data = message.base64;
-
-    const viewerHtml = `
-        <html>
-        <head>
-            <title>AO3 Word Cloud Viewer</title>
-            <style>
-                body { margin: 0; padding: 0; overflow: hidden; background: #121212; font-family: sans-serif; color: white; }
-                #viewer-container { width: 100vw; height: 100vh; cursor: grab; display: flex; align-items: center; justify-content: center; position: relative; }
-                #viewer-container:active { cursor: grabbing; }
-                img { max-width: none; transform-origin: 0 0; transition: transform 0.05s linear; }
-                #ui-overlay { 
-                    position: fixed; top: 20px; left: 20px; background: rgba(0,0,0,0.85); 
-                    color: white; padding: 20px; border-radius: 12px; border: 1px solid #444;
-                    pointer-events: none; z-index: 100; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-                }
-                .key { background: #d92b2b; color: white; padding: 2px 8px; border-radius: 4px; margin-right: 10px; font-weight: bold; font-family: monospace; }
-            </style>
-        </head>
-        <body>
-            <div id="ui-overlay">
-                <div style="font-weight: bold; color: #ff4d4d; font-size: 18px; margin-bottom: 10px;">AO3 4K Viewer</div>
-                <div style="margin-bottom:5px;"><span class="key">SCROLL</span> Zoom In/Out</div>
-                <div style="margin-bottom:5px;"><span class="key">DRAG</span> Move Image</div>
-                <div><span class="key">DBL-CLICK</span> Reset View</div>
-            </div>
-            <div id="viewer-container"><img id="cloud-img" src="${base64Data}" /></div>
-            <script>
-                const img = document.getElementById('cloud-img');
-                const container = document.getElementById('viewer-container');
-                let scale = 0.4; let pos = { x: window.innerWidth/4, y: 50 };
-                let isDragging = false; let startPos = { x: 0, y: 0 };
-                function draw() { img.style.transform = 'translate(' + pos.x + 'px, ' + pos.y + 'px) scale(' + scale + ')'; }
-                window.addEventListener('wheel', (e) => {
-                    e.preventDefault();
-                    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-                    pos.x = e.clientX - (e.clientX - pos.x) * delta;
-                    pos.y = e.clientY - (e.clientY - pos.y) * delta;
-                    scale *= delta; draw();
-                }, { passive: false });
-                container.onmousedown = (e) => { isDragging = true; startPos = { x: e.clientX - pos.x, y: e.clientY - pos.y }; };
-                window.onmousemove = (e) => { if (!isDragging) return; pos.x = e.clientX - startPos.x; pos.y = e.clientY - startPos.y; draw(); };
-                window.onmouseup = () => isDragging = false;
-                window.ondblclick = () => { scale = 0.4; pos = { x: window.innerWidth/4, y: 50 }; draw(); };
-                draw();
-            <\/script>
-        </body>
-        </html>
-    `;
-
-    const blob = new Blob([viewerHtml], {type: 'text/html'});
-    const blobUrl = URL.createObjectURL(blob);
-
-    const checkExist = setInterval(function() {
-       const link = document.getElementById('ready_image_link');
-       if (link) {
-          link.href = blobUrl;
-          clearInterval(checkExist);
-       }
-    }, 100);
-});
-"""
 
 # --- UI ---
 app_ui = ui.page_sidebar(
@@ -111,17 +42,23 @@ app_ui = ui.page_sidebar(
                                  "comments": "Comments", "word_count": "Word Count"}),
         ui.input_numeric("top_n_tags", "Top N Tags (Bar Chart):", value=20),
         ui.input_slider("top_n_fandoms", "Top N Fandoms:", min=5, max=50, value=10),
+
         ui.hr(),
         ui.markdown("### Word Cloud Tools"),
-        ui.input_action_button("open_cloud_btn", "Open High-Res in New Tab", class_="btn-danger w-100"),
-        ui.help_text("Opens a 4K image in a separate interactive viewer tab."),
+        ui.input_select("wc_shape", "Word Cloud Shape:",
+                        choices=["Simple Circle", "AO3 Logo"]),
+
+        ui.hr(),
+        ui.markdown("### Percentage of points (ML)"),
+        ui.input_select("percentage", "Percentage:",
+                        choices=["1%", "2%", "5%", "10%", "20%", "50%", "100%"]),
+
         title="Controls",
         width=350,
         open="always"
     ),
 
     ui.head_content(
-        ui.tags.script(ui.HTML(js_logic)),
         ui.tags.style(CSS)
     ),
 
@@ -143,19 +80,45 @@ app_ui = ui.page_sidebar(
         ui.nav_panel(
             "Fandom Distribution",
             ui.card(
-                ui.card_header(
-                    ui.div("SFW vs NSFW Comparison"),
-                    ui.div(ui.output_ui("tag_count_refy"), style="font-weight: normal; opacity: 0.8;"),
-                    style="display: flex; justify-content: space-between; align-items: center; width: 100%;"
+                ui.markdown(
+                    """
+                    ### Content Definitions
+                    *   **SFW (Safe For Work):** Works rated 'General Audiences' or 'Teen And Up Audiences'. Generally focus on plot, romance, or platonic themes without explicit sexual content.
+                    *   **NSFW (Not Safe For Work):** Works rated 'Mature' or 'Explicit'. Often contain graphic violence or explicit sexual content.
+                    """
                 ),
-                output_widget("fandom_split_chart"),
-                full_screen=True
+                style="background-color: #f8f9fa; border-left: 5px solid #d92b2b;"
+            ),
+
+            ui.layout_column_wrap(
+                ui.card(
+                    ui.card_header(
+                        "Content Volume",
+                        ui.div(
+                            ui.div(ui.output_ui("tag_count_ref1"), style="font-weight: normal; opacity: 0.8;"),
+                            style="display: flex; justify-content: flex-end; align-items: center; width: 100%;"
+                        )
+                    ),
+                    output_widget("fandom_volume_chart"),
+                    full_screen=True
+                ),
+                ui.card(
+                    ui.card_header("Content Ratio",
+                        ui.div(
+                            ui.div(ui.output_ui("tag_count_ref2"), style="font-weight: normal; opacity: 0.8;"),
+                            style="display: flex; justify-content: flex-end; align-items: center; width: 100%;"
+                        )
+                    ),
+                    output_widget("fandom_ratio_chart"),
+                    full_screen=True
+                ),
+                width=1 / 2
             )
         ),
         ui.nav_panel(
             "Word Cloud",
             ui.card(
-                ui.card_header("Preview"),
+                ui.card_header("Word Cloud"),
                 ui.output_plot("word_cloud_preview", height="800px"),
                 full_screen=True
             )
@@ -192,7 +155,7 @@ app_ui = ui.page_sidebar(
                     output_widget("radar_chart"),
                     full_screen=True
                 ),
-                width=1 / 2  # This puts the first two side-by-side
+                width=1 / 2
             ),
             ui.card(
                 ui.card_header("Impact on Success"),
@@ -213,11 +176,32 @@ app_ui = ui.page_sidebar(
                 ),
                 ui.card(
                     ui.card_header("Fandom Landscape Shift"),
+                    ui.input_slider("numFan", "Fandoms:", min=5, max=50, value=10),
                     ui.markdown("Shows how the volume of top fandoms has changed over time."),
                     output_widget("fandom_evolution_chart"),
                     full_screen=True
                 ),
                 width=1
+            )
+        ),
+        ui.nav_panel(
+            "Clustering (ML)",
+            ui.card(
+                ui.card_header("Works Clustering",
+                    ui.div(
+                        ui.div(ui.output_ui("tag_count_ref3"), style="font-weight: normal; opacity: 0.8;"),
+                        style="display: flex; justify-content: flex-end; align-items: center; width: 100%;"
+                    )
+                ),
+                ui.markdown(
+                    """
+                    **How it works:** Works are translated into vector embeddings based on their fandoms and tags, 
+                    then reduced via PCA. Works grouped closely together share similar semantic tropes and themes! 
+                    *(Note: Visual limited to a random sample of dots default to 1% of total works to preserve browser performance. You can change this percentage via the sidebar).*
+                    """
+                ),
+                output_widget("ml_cluster_chart"),
+                full_screen=True
             )
         ),
     ),
@@ -243,8 +227,19 @@ def server(input, output, session):
 
     @output
     @render.ui
-    def tag_count_refy():
+    def tag_count_ref1():
         return f"{len(tag_data()):,} works"
+
+    @output
+    @render.ui
+    def tag_count_ref2():
+        return f"{len(tag_data()):,} works"
+
+    @output
+    @render.ui
+    def tag_count_ref3():
+        percentage = input.percentage()
+        return f"{round(((int(''.join(list(percentage)[0:-1]))) / 100) * len(tag_data())):,} works"
 
     @output
     @render.ui
@@ -260,61 +255,31 @@ def server(input, output, session):
 
     @output
     @render_widget
-    def fandom_split_chart():
+    def fandom_volume_chart():
         d = filter_by_inputs(df, input.fandom_select(), input.date_range(), "All")
         stats, order = get_fandom_split_stats(d, input.top_n_fandoms())
-        return create_fandom_stacked_chart(stats, order)
+        return create_fandom_stacked_chart(stats, order, mode="count")
+
+    @output
+    @render_widget
+    def fandom_ratio_chart():
+        d = filter_by_inputs(df, input.fandom_select(), input.date_range(), "All")
+        stats, order = get_fandom_split_stats(d, input.top_n_fandoms())
+        return create_fandom_stacked_chart(stats, order, mode="relative")
 
     @output
     @render.plot
     def word_cloud_preview():
         d = tag_data()
-        stats = get_tag_stats(d, input.metric(), 100)
-        mask = LOGO_PATH if os.path.exists(LOGO_PATH) else None
-        wc = get_word_cloud_object(stats, input.metric(), mask, high_res=False)
+        stats = get_tag_stats(d, input.metric(), 150)
+
+        wc = get_word_cloud_object(stats, input.wc_shape(), LOGO_PATH, high_res=False)
+
         if not wc: return None
-        import matplotlib.pyplot as plt
         fig, ax = plt.subplots(figsize=(10, 8))
         ax.imshow(wc, interpolation='bilinear')
         ax.axis("off")
         return fig
-
-    @reactive.effect
-    @reactive.event(input.open_cloud_btn)
-    async def _():
-        with ui.Progress(min=1, max=1) as p:
-            p.set(message="Generating 4K Image...", detail="Opening separate viewer tab...")
-            d = tag_data()
-            stats = get_tag_stats(d, input.metric(), 250)
-            mask = LOGO_PATH if os.path.exists(LOGO_PATH) else None
-            wc = get_word_cloud_object(stats, input.metric(), mask, high_res=True)
-
-            img = wc.to_image()
-            buffered = io.BytesIO()
-            img.save(buffered, format="PNG")
-            img_str = base64.b64encode(buffered.getvalue()).decode()
-            base64_url = f"data:image/png;base64,{img_str}"
-
-            m = ui.modal(
-                ui.div(
-                    ui.markdown("### High-Res Viewer Ready"),
-                    ui.tags.a(
-                        "CLICK HERE TO OPEN VIEWER",
-                        id="ready_image_link",
-                        href="#",
-                        target="_blank",
-                        class_="btn btn-danger btn-lg w-100",
-                        style="text-decoration: none; color: white; font-weight: bold;"
-                    ),
-                    style="text-align: center; padding: 25px;"
-                ),
-                title="Render Complete",
-                easy_close=True,
-                footer=ui.modal_button("Cancel")
-            )
-            ui.modal_show(m)
-
-            await session.send_custom_message('prepare_image', {'base64': base64_url})
 
     @output
     @render_widget
@@ -356,8 +321,20 @@ def server(input, output, session):
     @render_widget
     def fandom_evolution_chart():
         d = tag_data()
-        stats = get_fandom_over_time(d, top_n=5)
+
+        if d is None or d.empty:
+            return None
+
+        n_fandoms = int(input.numFan())
+
+        stats = get_fandom_over_time(d, top_n=n_fandoms)
         return create_fandom_evolution_chart(stats)
+
+    @output
+    @render_widget
+    def ml_cluster_chart():
+        d = tag_data()
+        return create_cluster_scatter_plot(d, input.percentage())
 
 app = App(app_ui, server)
 

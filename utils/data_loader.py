@@ -48,7 +48,17 @@ def load_clean_data(file_path, nsfw_file_path):
         df['last_updated'] = df['last_updated'].fillna(safe_floor)
         df['last_updated'] = df['last_updated'].clip(lower=safe_floor)
 
-        # 4. Fandom Choices
+        # 4. Load ML Clusters
+        cluster_path = os.path.join(os.path.dirname(file_path), "work_clusters.csv")
+        if os.path.exists(cluster_path):
+            clusters_df = pd.read_csv(cluster_path)
+            df = df.merge(clusters_df, on='work_id', how='left')
+        else:
+            df['pca_x'] = None
+            df['pca_y'] = None
+            df['cluster'] = None
+
+        # 5. Fandom Choices
         fandom_counts = df['fandom'].value_counts()
         fandom_choices = {f: f"{f} ({count:,} works)" for f, count in fandom_counts.items()}
 
