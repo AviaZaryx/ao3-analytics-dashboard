@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as np
 import re
 import unicodedata
 
@@ -75,7 +74,6 @@ def clean_chapters(value):
 
 
 # --- 2. MAIN CLEANING LOGIC ---
-
 def run_cleaning():
     print("Reading file...")
     df = pd.read_csv(INPUT_FILE, low_memory=False)
@@ -94,9 +92,7 @@ def run_cleaning():
     print("Cleaning numeric strings and fixing word_count type...")
     numeric_cols = ['hits', 'kudos', 'bookmarks', 'comments', 'word_count']
     for col in numeric_cols:
-        # Step 1: Force to string, remove commas, convert to numeric
         df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce')
-        # Step 2: Fill NaN with 0 before conversion to ensure it doesn't stay as float
         df[col] = df[col].fillna(0).astype('int64')
 
     print("Processing chapter formats...")
@@ -104,11 +100,9 @@ def run_cleaning():
 
     print("Converting dates and creating date_numeric...")
     df['last_updated'] = pd.to_datetime(df['last_updated'], dayfirst=True, errors='coerce')
-    # Use 'date_numeric' to match your datacheck.py script
     df['date_numeric'] = df['last_updated'].dt.strftime('%Y%m%d').fillna('0').astype('int64')
 
     print("Cleaning text placeholders...")
-    # These columns showed nulls in your report; this fixes that
     text_cols = ['title', 'authors', 'relationships', 'characters', 'summary', 'series', 'series_urls', 'series_info']
     for col in text_cols:
         if col in df.columns:

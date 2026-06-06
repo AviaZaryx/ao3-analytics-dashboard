@@ -5,7 +5,7 @@ import html
 from tqdm import tqdm
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from textblob import TextBlob
-from nrclex import NRCLex  # New Import
+from nrclex import NRCLex
 
 # Paths
 DATA_DIR = r"D:\Downloads\DataVisProj2\data"
@@ -17,21 +17,19 @@ def clean_text(text):
     if not isinstance(text, str):
         return ""
     text = html.unescape(text)
-    text = re.sub(r'<.*?>', '', text)  # Remove HTML tags
-    text = re.sub(r'http\S+', '', text)  # Remove URLs
+    text = re.sub(r'<.*?>', '', text)
+    text = re.sub(r'http\S+', '', text)
     return text.strip()
 
 
 def process_chunk(chunk, analyzer):
     results = []
 
-    # We define the emotion list once to ensure consistent columns
     emotion_list = ['fear', 'anger', 'trust', 'surprise', 'sadness', 'disgust', 'joy', 'anticipation']
 
     for summary in chunk['summary']:
         clean = clean_text(summary)
 
-        # Default values if text is empty
         row_metrics = {
             'sent_compound': 0.5,
             'sent_pos': 0.0,
@@ -39,7 +37,7 @@ def process_chunk(chunk, analyzer):
             'sent_subjectivity': 0.0,
             'top_emotion': 'neutral'
         }
-        # Initialize all emotion columns to 0.0
+
         for e in emotion_list:
             row_metrics[f'emo_{e}'] = 0.0
 
@@ -61,20 +59,17 @@ def process_chunk(chunk, analyzer):
                 emotion = NRCLex(clean)
                 freqs = emotion.affect_frequencies
 
-                # Update specific emotion scores
                 for e in emotion_list:
-                    # NRCLex sometimes uses 'anticip', we want 'anticipation'
                     val = freqs.get(e, 0.0)
                     if e == 'anticip' or e == 'anticipation':
                         val = max(freqs.get('anticip', 0), freqs.get('anticipation', 0))
                     row_metrics[f'emo_{e}'] = val
 
-                # Determine top emotion (excluding positive/negative labels)
                 refined = {k: v for k, v in freqs.items() if k in emotion_list}
                 if refined and max(refined.values()) > 0:
                     row_metrics['top_emotion'] = max(refined, key=refined.get)
             except:
-                pass  # If NRCLex fails, keep defaults
+                pass
 
         results.append(row_metrics)
 
@@ -96,7 +91,6 @@ def main():
     print("Counting rows...")
     row_count = sum(1 for _ in open(INPUT_FILE, encoding='utf-8', errors='ignore')) - 1
 
-    # NRCLex is slower; reduced chunk_size slightly for better UI feedback
     chunk_size = 2000
     analyzer = SentimentIntensityAnalyzer()
 

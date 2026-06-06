@@ -24,7 +24,6 @@ def create_fandom_stacked_chart(stats_df, top_fandoms_order):
     if stats_df is None or stats_df.empty:
         return px.bar(title="No Data")
 
-    # Convert order list to strings to ensure matching
     top_fandoms_order = [str(x) for x in top_fandoms_order]
 
     fig = px.bar(
@@ -40,13 +39,12 @@ def create_fandom_stacked_chart(stats_df, top_fandoms_order):
     fig.update_layout(
         template="simple_white",
         barmode='stack',
-        xaxis={'tickangle': -45},  # Lean the text so it doesn't overlap
+        xaxis={'tickangle': -45},
         xaxis_title="Fandom",
         yaxis_title="Number of Works",
         legend_title="Content Type"
     )
 
-    # This line forces Plotly to hide any category that isn't in the stats_df
     fig.update_xaxes(type='category')
 
     return fig
@@ -93,7 +91,6 @@ def create_correlation_heatmap(corr_matrix, metric):
 
     display_name = metric.replace("_", " ").title()
 
-    # Ensure no NaNs exist to prevent JSON errors
     plot_data = corr_matrix.fillna(0)
 
     fig = px.imshow(
@@ -107,14 +104,12 @@ def create_correlation_heatmap(corr_matrix, metric):
 
     fig.update_layout(
         template="simple_white",
-        # Use tickangle to prevent overlapping and automargin to fit long tags
         xaxis=dict(tickmode='linear', tickfont=dict(size=10), tickangle=-45, automargin=True),
         yaxis=dict(tickmode='linear', tickfont=dict(size=10), automargin=True),
         height=700,
         margin=dict(l=150, r=20, t=100, b=150)
     )
 
-    # Correctly add the annotation (where xanchor IS a valid property)
     fig.add_annotation(
         text=f"<b>← Direct impact on {display_name}</b>",
         xref="paper", yref="paper",
@@ -131,12 +126,11 @@ def create_emotion_bar_chart(emotion_df):
     if emotion_df is None or emotion_df.empty:
         return px.bar(title="No Sentiment Data")
 
-    # Use standard colors
     fig = px.bar(
         emotion_df, x='emotion', y='count',
         color='emotion',
         color_discrete_map=EMOTION_COLORS,
-        title="Dominant Tones (Based on Work Summaries)" # Clarification added
+        title="Dominant Tones (Based on Work Summaries)"
     )
     fig.update_layout(template="simple_white", showlegend=False, xaxis_title="Primary Emotion (from Summary)")
     return fig
@@ -145,7 +139,6 @@ def create_emotion_radar_chart(radar_df):
     if radar_df is None or radar_df.empty:
         return go.Figure()
 
-    # 1. Find dominating emotion for the dynamic color
     dom_emo = radar_df.loc[radar_df['score'].idxmax(), 'emotion']
     color = EMOTION_COLORS.get(dom_emo, '#d92b2b')
 
@@ -158,7 +151,6 @@ def create_emotion_radar_chart(radar_df):
         line_color=color,
         fillcolor=color,
         opacity=0.5,
-        # Clean up the hover label to be more readable
         hovertemplate="<b>%{theta}</b><br>Intensity: %{r:.4f}<extra></extra>"
     ))
 
@@ -166,22 +158,21 @@ def create_emotion_radar_chart(radar_df):
         polar=dict(
             radialaxis=dict(
                 visible=True,
-                showticklabels=False, # Hides the numbers
-                showline=False,       # Hides the central axis line
-                ticks="",             # Removes tick marks
-                gridcolor="#ECECEC",  # Keeps the "web" lines subtle
+                showticklabels=False,
+                showline=False,
+                ticks="",
+                gridcolor="#ECECEC",
             ),
             angularaxis=dict(
-                tickfont=dict(size=14, color="#444"), # Makes emotion labels bigger
+                tickfont=dict(size=14, color="#444"),
                 rotation=90,
                 direction="clockwise"
             ),
-            bgcolor="rgba(0,0,0,0)" # Transparent background
+            bgcolor="rgba(0,0,0,0)"
         ),
         showlegend=False,
-        # Reducing margins to 20 or 30 makes the chart significantly larger in the card
         margin=dict(l=50, r=50, t=50, b=50),
-        height=450, # Explicit height helps fill the Card component
+        height=450,
         title=dict(
             text="Emotional Fingerprint (Intensity of Summary)",
             font=dict(size=16),
@@ -209,12 +200,11 @@ def create_sentiment_success_plot(df, metric):
         log_y=True
     )
 
-    # Fix the "weird units" on the log scale
     fig.update_layout(
         template="simple_white",
         showlegend=False,
         yaxis=dict(
-            tickformat="~s", # This turns 100000 into "100k"
+            tickformat="~s",
             title=f"Total {display_metric} (Log Scale)"
         )
     )
@@ -227,19 +217,15 @@ def get_time_series_stats(df, metric, time_unit='YE'):
         return None
 
     dff = df.copy()
-    # Ensure last_updated is datetime
     dff['last_updated'] = pd.to_datetime(dff['last_updated'])
 
-    # Create the period column (Yearly 'YE' or Monthly 'ME')
     dff['period'] = dff['last_updated'].dt.to_period(time_unit).dt.to_timestamp()
 
-    # Group and calculate both Count and the chosen Metric Mean
     stats = dff.groupby('period').agg({
         'work_id': 'count',
         metric: ['mean', 'sum']
     }).reset_index()
 
-    # Flatten multi-index columns
     stats.columns = ['period', 'work_count', f'{metric}_mean', f'{metric}_sum']
     return stats
 
@@ -262,19 +248,15 @@ def get_time_series_stats(df, metric, time_unit='YE'):
         return None
 
     dff = df.copy()
-    # Ensure last_updated is datetime
     dff['last_updated'] = pd.to_datetime(dff['last_updated'])
 
-    # Create the period column (Yearly 'YE' or Monthly 'ME')
     dff['period'] = dff['last_updated'].dt.to_period(time_unit).dt.to_timestamp()
 
-    # Group and calculate both Count and the chosen Metric Mean
     stats = dff.groupby('period').agg({
         'work_id': 'count',
         metric: ['mean', 'sum']
     }).reset_index()
 
-    # Flatten multi-index columns
     stats.columns = ['period', 'work_count', f'{metric}_mean', f'{metric}_sum']
     return stats
 
@@ -298,10 +280,8 @@ def create_metric_over_time_chart(ts_df, metric):
     display_metric = metric.replace("_", " ").title()
     fig = go.Figure()
 
-    # Use the 'period_str' column we just created
     x_axis_data = ts_df['period_str']
 
-    # 1. Bar Trace (Work Volume)
     fig.add_trace(go.Bar(
         x=x_axis_data,
         y=ts_df['work_count'],
@@ -310,7 +290,6 @@ def create_metric_over_time_chart(ts_df, metric):
         yaxis='y2'
     ))
 
-    # 2. Line Trace (Average Metric)
     fig.add_trace(go.Scatter(
         x=x_axis_data,
         y=ts_df[f'{metric}_mean'],
@@ -325,9 +304,9 @@ def create_metric_over_time_chart(ts_df, metric):
 
         xaxis=dict(
             title="Timeline",
-            type='date',  # Tells Plotly: "This is a calendar"
-            tickformat='%Y',  # Shows "2021", "2022", etc.
-            autorange=True  # Snaps the view to include all years
+            type='date',
+            tickformat='%Y',
+            autorange=True
         ),
 
         yaxis=dict(

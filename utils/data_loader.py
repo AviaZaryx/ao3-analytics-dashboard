@@ -10,7 +10,6 @@ def load_clean_data(file_path, nsfw_file_path):
         return pd.DataFrame(), {}, date(2000, 1, 1), date.today()
 
     try:
-        # Define dtypes for ALL columns to save memory (especially with 900k rows)
         dtype_dict = {
             'work_id': 'Int64',
             'word_count': 'Int64',
@@ -18,15 +17,14 @@ def load_clean_data(file_path, nsfw_file_path):
             'kudos': 'Int64',
             'bookmarks': 'Int64',
             'comments': 'Int64',
-            'fandom': 'category',  # Categorical is much faster than string
-            'top_emotion': 'category',  # Categorical is much faster than string
+            'fandom': 'category',
+            'top_emotion': 'category',
             'sent_compound': 'float32',
             'sent_pos': 'float32',
             'sent_neg': 'float32',
             'sent_subjectivity': 'float32'
         }
 
-        # Add the emo_ columns to dtype (all are float32)
         for emo in ['fear', 'anger', 'trust', 'surprise', 'sadness', 'disgust', 'joy', 'anticipation']:
             dtype_dict[f'emo_{emo}'] = 'float32'
 
@@ -35,7 +33,7 @@ def load_clean_data(file_path, nsfw_file_path):
             file_path,
             parse_dates=['last_updated'],
             dtype=dtype_dict,
-            engine='c'  # Faster parser
+            engine='c'
         )
 
         # 2. Load NSFW IDs

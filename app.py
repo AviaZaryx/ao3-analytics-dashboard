@@ -26,9 +26,7 @@ if min_date_val == max_date_val:
     print("WARNING: Min and Max dates are equal. Adjusting to prevent crash.")
     max_date_val = min_date_val + timedelta(days=1)
 
-# --- JAVASCRIPT LOGIC ---
-# The backslash in <\/script> prevents the browser from closing the
-# parent script tag prematurely.
+# --- JAVASCRIPT ---
 js_logic = """
 Shiny.addCustomMessageHandler('prepare_image', function(message) {
     const base64Data = message.base64;
@@ -299,7 +297,7 @@ def server(input, output, session):
 
             m = ui.modal(
                 ui.div(
-                    ui.markdown("### 🖼️ High-Res Viewer Ready"),
+                    ui.markdown("### High-Res Viewer Ready"),
                     ui.tags.a(
                         "CLICK HERE TO OPEN VIEWER",
                         id="ready_image_link",
@@ -321,11 +319,8 @@ def server(input, output, session):
     @output
     @render_widget
     def correlation_chart():
-        # Get the filtered dataframe
         d = tag_data()
 
-        # Calculate matrix using the correct metric from the input
-        # We limit to 15 tags to keep the chart readable
         corr_matrix = get_correlation_data(d, input.metric(), input.top_n_tags())
 
         return create_correlation_heatmap(corr_matrix, input.metric())
@@ -333,7 +328,7 @@ def server(input, output, session):
     @output
     @render_widget
     def emotion_chart():
-        d = tag_data()  # This uses your existing reactive filtered data
+        d = tag_data()
         stats = get_emotion_stats(d)
         return create_emotion_bar_chart(stats)
 
@@ -361,14 +356,8 @@ def server(input, output, session):
     @render_widget
     def fandom_evolution_chart():
         d = tag_data()
-        # Using top_n_fandoms from your existing slider
         stats = get_fandom_over_time(d, top_n=5)
         return create_fandom_evolution_chart(stats)
-
-    @reactive.effect
-    def _print_debug():
-        d = tag_data()
-        print(f"DEBUG: Date Range in filtered data: {d['last_updated'].min()} to {d['last_updated'].max()}")
 
 app = App(app_ui, server)
 

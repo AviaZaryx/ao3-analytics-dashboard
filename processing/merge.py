@@ -2,7 +2,6 @@ import pandas as pd
 import glob
 import os
 
-# Define the paths
 input_path = r'D:\Downloads\DataVisProj2\data\raw data'
 output_path = r'D:\Downloads\DataVisProj2\data\combined_all_works.csv'
 
@@ -23,7 +22,6 @@ def merge_csv_files():
     for filename in all_files:
         print(f"Reading: {os.path.basename(filename)}")
 
-        # We use thousands=',' and low_memory=False based on your previous data issues
         df = pd.read_csv(filename, index_col=None, header=0, low_memory=False, thousands=',')
         li.append(df)
 
