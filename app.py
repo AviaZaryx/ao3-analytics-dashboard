@@ -19,7 +19,20 @@ from utils.styles import CSS
 BASE_DIR = os.path.dirname(__file__)
 DATA_PATH = os.path.join(BASE_DIR, "data", "cleaned_ao3_data.csv")
 NSFW_PATH = os.path.join(BASE_DIR, "data", "nsfw", "nsfw_works.csv")
-LOGO_PATH = r"D:\Downloads\DataVisProj2\Logo_Archive_of_Our_Own.svg.png"
+LOGO_PATH = os.path.join(BASE_DIR, "Logo_Archive_of_Our_Own.svg.png")
+
+
+def image_data_uri(path):
+    if not os.path.exists(path):
+        return ""
+
+    with open(path, "rb") as image_file:
+        encoded = base64.b64encode(image_file.read()).decode("ascii")
+
+    return f"data:image/png;base64,{encoded}"
+
+
+LOGO_URI = image_data_uri(LOGO_PATH)
 
 df, fandom_map, min_date_val, max_date_val = load_clean_data(DATA_PATH, NSFW_PATH)
 
@@ -40,7 +53,7 @@ app_ui = ui.page_sidebar(
         ui.input_select("metric", "Metric:",
                         choices={"hits": "Hits", "kudos": "Kudos", "bookmarks": "Bookmarks",
                                  "comments": "Comments", "word_count": "Word Count"}),
-        ui.input_numeric("top_n_tags", "Top N Tags (Bar Chart):", value=20),
+        ui.input_numeric("top_n_tags", "Top N Tags (Bar Chart):", value=20, min=5, max=50),
         ui.input_slider("top_n_fandoms", "Top N Fandoms:", min=5, max=50, value=10),
 
         ui.hr(),
@@ -59,6 +72,9 @@ app_ui = ui.page_sidebar(
     ),
 
     ui.head_content(
+        ui.tags.link(rel="icon", type="image/png", href=LOGO_URI),
+        ui.tags.link(rel="shortcut icon", type="image/png", href=LOGO_URI),
+        ui.tags.link(rel="apple-touch-icon", href=LOGO_URI),
         ui.tags.style(CSS)
     ),
 
@@ -193,19 +209,22 @@ app_ui = ui.page_sidebar(
                         style="display: flex; justify-content: flex-end; align-items: center; width: 100%;"
                     )
                 ),
-                ui.markdown(
-                    """
-                    **How it works:** Works are translated into vector embeddings based on their fandoms and tags, 
-                    then reduced via PCA. Works grouped closely together share similar semantic tropes and themes! 
-                    *(Note: Visual limited to a random sample of dots default to 1% of total works to preserve browser performance. You can change this percentage via the sidebar).*
-                    """
+                ui.div(
+                    ui.span("PCA map of semantically related works"),
+                    ui.span(ui.output_ui("cluster_sample_note")),
+                    class_="cluster-meta"
                 ),
-                output_widget("ml_cluster_chart"),
-                full_screen=True
+                ui.div(output_widget("ml_cluster_chart"), class_="cluster-plot-wrap"),
+                full_screen=True,
+                class_="cluster-card"
             )
         ),
     ),
-    title="AO3 Analytics Dashboard"
+    title=ui.div(
+        ui.img(src=LOGO_URI, alt="AO3 logo", class_="app-title-logo"),
+        ui.span("AO3 Analytics Dashboard"),
+        class_="app-title"
+    )
 )
 
 
@@ -238,8 +257,20 @@ def server(input, output, session):
     @output
     @render.ui
     def tag_count_ref3():
-        percentage = input.percentage()
-        return f"{round(((int(''.join(list(percentage)[0:-1]))) / 100) * len(tag_data())):,} works"
+        percentage = input.percentage() or "1%"
+        try:
+            percent = int(str(percentage).replace("%", ""))
+        except ValueError:
+            percent = 1
+
+        percent = min(max(percent, 1), 100)
+        return f"{round((percent / 100) * len(tag_data())):,} works"
+
+    @output
+    @render.ui
+    def cluster_sample_note():
+        percentage = input.percentage() or "1%"
+        return f"{percentage} sample"
 
     @output
     @render.ui

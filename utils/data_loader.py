@@ -28,9 +28,28 @@ def load_clean_data(file_path, nsfw_file_path):
         for emo in ['fear', 'anger', 'trust', 'surprise', 'sadness', 'disgust', 'joy', 'anticipation']:
             dtype_dict[f'emo_{emo}'] = 'float32'
 
+        usecols = [
+            'work_id',
+            'fandom',
+            'last_updated',
+            'additional_tags',
+            'word_count',
+            'hits',
+            'kudos',
+            'bookmarks',
+            'comments',
+            'top_emotion',
+            'sent_compound',
+            'sent_pos',
+            'sent_neg',
+            'sent_subjectivity',
+        ]
+        usecols.extend(f'emo_{emo}' for emo in ['fear', 'anger', 'trust', 'surprise', 'sadness', 'disgust', 'joy', 'anticipation'])
+
         # 1. Load the Sentiment File
         df = pd.read_csv(
             file_path,
+            usecols=usecols,
             parse_dates=['last_updated'],
             dtype=dtype_dict,
             engine='c'

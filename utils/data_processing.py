@@ -1,11 +1,37 @@
+from collections import Counter, defaultdict
+
 import pandas as pd
+
+MAX_TAG_ROWS = 75000
+MAX_CORRELATION_ROWS = 40000
+
+
+def clamp_int(value, default, min_value, max_value):
+    if value is None:
+        return default
+
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return default
+
+    return min(max(value, min_value), max_value)
+
+
+def sample_for_tag_work(df, max_rows=MAX_TAG_ROWS):
+    """Keep tag-heavy charts responsive on the full AO3 dataset."""
+    if df is None or df.empty or len(df) <= max_rows:
+        return df
+
+    return df.sample(max_rows, random_state=42)
+
 
 def filter_by_inputs(df, fandom_selection, date_range, nsfw_filter):
     """Filters data using the pre-calculated 'is_nsfw' column."""
     if df is None or df.empty:
         return df
 
-    dff = df.copy()
+    dff = df
 
     # 1. Fandom Filter
     if fandom_selection and "Global" not in fandom_selection:
@@ -29,17 +55,35 @@ def filter_by_inputs(df, fandom_selection, date_range, nsfw_filter):
 def get_tag_stats(df, metric, top_n):
     if df is None or df.empty: return None
 
-    tags_df = df[df['additional_tags'].notna() & (df['additional_tags'] != "None")].copy()
-    tags_expanded = tags_df.assign(tag=tags_df['additional_tags'].str.split(', ')).explode('tag')
-    tags_expanded['tag'] = tags_expanded['tag'].str.strip()
+    top_n = clamp_int(top_n, default=20, min_value=1, max_value=100)
+    df = sample_for_tag_work(df, MAX_TAG_ROWS)
 
-    stats = (tags_expanded.groupby('tag')[metric]
-             .agg(['sum', 'mean'])
-             .reset_index())
+    totals = Counter()
+    counts = Counter()
 
-    stats.columns = ['tag', 'total', 'average']
+    for tag_text, value in zip(df['additional_tags'], pd.to_numeric(df[metric], errors='coerce')):
+        if pd.isna(tag_text) or tag_text == "None" or pd.isna(value):
+            continue
 
-    return stats.sort_values(by='total', ascending=False).head(top_n)
+        for tag in str(tag_text).split(', '):
+            tag = tag.strip()
+            if not tag:
+                continue
+            totals[tag] += value
+            counts[tag] += 1
+
+    if not totals:
+        return None
+
+    stats = pd.DataFrame(
+        (
+            (tag, total, total / counts[tag])
+            for tag, total in totals.most_common(top_n)
+        ),
+        columns=['tag', 'total', 'average']
+    )
+
+    return stats
 
 
 def get_fandom_split_stats(df, top_n):
@@ -65,37 +109,53 @@ def get_correlation_data(df, metric, top_n=15):
     if df is None or df.empty:
         return None
 
-    # 1. Replicate Explosion
-    tags_df = df[df['additional_tags'].notna() & (df['additional_tags'] != "None")].copy()
-    tags_expanded = tags_df.assign(tag=tags_df['additional_tags'].str.split(', ')).explode('tag')
-    tags_expanded['tag'] = tags_expanded['tag'].str.strip()
+    top_n = clamp_int(top_n, default=15, min_value=2, max_value=30)
+    df = sample_for_tag_work(df, MAX_CORRELATION_ROWS)
 
-    # 2. Identify Top N Tags sorted by Metric Sum (This is your "Bar Chart order")
-    top_tags_stats = (tags_expanded.groupby('tag')[metric].sum()
-                      .sort_values(ascending=False).head(top_n))
-    top_tags = top_tags_stats.index.tolist() # This list is now [Rank 1, Rank 2, Rank 3...]
+    tag_stats = get_tag_stats(df, metric, top_n)
+    if tag_stats is None or tag_stats.empty:
+        return None
 
-    # 3. Filter data
-    subset = tags_expanded[tags_expanded['tag'].isin(top_tags)].copy()
+    top_tags = tag_stats['tag'].tolist()
+    top_tag_set = set(top_tags)
+    id_col = 'work_id' if 'work_id' in df.columns else None
 
-    # 4. Identify Work ID
-    id_col = 'work_id' if 'work_id' in subset.columns else subset.index.name
-    if not id_col:
-        id_col = 'index'
-        subset = subset.reset_index()
+    metric_values = {}
+    tag_to_ids = defaultdict(set)
 
-    # 5. Create Binary Matrix
-    binary_matrix = subset.groupby([id_col, 'tag']).size().unstack(fill_value=0)
-    binary_matrix = (binary_matrix > 0).astype(int)
+    ids = df[id_col] if id_col else df.index
+    values = pd.to_numeric(df[metric], errors='coerce')
 
-    # 6. Attach Metric
-    metric_values = subset.groupby(id_col)[metric].max()
-    combined_df = binary_matrix.join(metric_values)
+    for row_id, tag_text, value in zip(ids, df['additional_tags'], values):
+        if pd.isna(tag_text) or tag_text == "None" or pd.isna(value):
+            continue
 
-    # 7. Calculate Correlation
+        matched_tags = set()
+        for tag in str(tag_text).split(', '):
+            tag = tag.strip()
+            if tag in top_tag_set:
+                matched_tags.add(tag)
+
+        if not matched_tags:
+            continue
+
+        metric_values[row_id] = value
+        for tag in matched_tags:
+            tag_to_ids[tag].add(row_id)
+
+    if not metric_values:
+        return None
+
+    work_ids = list(metric_values.keys())
+    binary_matrix = pd.DataFrame(0, index=work_ids, columns=top_tags, dtype='uint8')
+
+    for tag, row_ids in tag_to_ids.items():
+        binary_matrix.loc[list(row_ids), tag] = 1
+
+    metric_series = pd.Series(metric_values, name=metric)
+    combined_df = binary_matrix.join(metric_series)
     corr_matrix = combined_df.corr().fillna(0)
 
-    # 8. ENFORCE SORT ORDER
     if metric in corr_matrix.columns:
         ordered_list = [metric] + [tag for tag in top_tags if tag in corr_matrix.columns]
         corr_matrix = corr_matrix.loc[ordered_list, ordered_list]
