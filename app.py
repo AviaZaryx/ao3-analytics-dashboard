@@ -1,6 +1,7 @@
 import base64
 import io
 import os
+import pandas as pd
 from shiny import App, render, ui, reactive
 from shinywidgets import output_widget, render_widget
 from datetime import timedelta
@@ -72,11 +73,20 @@ app_ui = ui.page_sidebar(
     ),
 
     ui.head_content(
+        ui.tags.link(rel="preconnect", href="https://fonts.googleapis.com"),
+        ui.tags.link(rel="preconnect", href="https://fonts.gstatic.com", crossorigin=""),
+        ui.tags.link(
+            rel="stylesheet",
+            href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Lora:wght@600;700&display=swap"
+        ),
         ui.tags.link(rel="icon", type="image/png", href=LOGO_URI),
         ui.tags.link(rel="shortcut icon", type="image/png", href=LOGO_URI),
         ui.tags.link(rel="apple-touch-icon", href=LOGO_URI),
         ui.tags.style(CSS)
     ),
+
+    ui.output_ui("breadcrumb"),
+    ui.output_ui("summary_cards"),
 
     ui.navset_tab(
         ui.nav_panel(
@@ -219,6 +229,7 @@ app_ui = ui.page_sidebar(
                 class_="cluster-card"
             )
         ),
+        id="main_nav"
     ),
     title=ui.div(
         ui.img(src=LOGO_URI, alt="AO3 logo", class_="app-title-logo"),
@@ -232,6 +243,60 @@ def server(input, output, session):
     @reactive.calc
     def tag_data():
         return filter_by_inputs(df, input.fandom_select(), input.date_range(), input.nsfw_filter())
+
+    def fmt_number(value):
+        if value is None or pd.isna(value):
+            return "N/A"
+
+        return f"{int(round(value)):,}"
+
+    @output
+    @render.ui
+    def breadcrumb():
+        current_tab = input.main_nav() or "Tag Analysis"
+        return ui.div(
+            ui.span("Works"),
+            ui.span("›", class_="breadcrumb-separator"),
+            ui.span(current_tab, class_="breadcrumb-current"),
+            class_="dashboard-breadcrumb"
+        )
+
+    @output
+    @render.ui
+    def summary_cards():
+        d = tag_data()
+        total_works = len(d) if d is not None else 0
+
+        cluster_count = 0
+        largest_cluster = 0
+        if d is not None and not d.empty and "cluster" in d.columns:
+            clusters = pd.to_numeric(d["cluster"], errors="coerce").dropna()
+            cluster_count = clusters.nunique()
+            if not clusters.empty:
+                largest_cluster = clusters.value_counts().max()
+
+        avg_hits = None
+        if d is not None and not d.empty and "hits" in d.columns:
+            avg_hits = pd.to_numeric(d["hits"], errors="coerce").mean()
+
+        cards = [
+            ("Total Works", f"{total_works:,}"),
+            ("Clusters", f"{int(cluster_count):,}"),
+            ("Avg Hits", fmt_number(avg_hits)),
+            ("Largest Cluster", f"{int(largest_cluster):,}"),
+        ]
+
+        return ui.div(
+            *[
+                ui.div(
+                    ui.div(label, class_="stat-label"),
+                    ui.div(value, class_="stat-value"),
+                    class_="stat-card"
+                )
+                for label, value in cards
+            ],
+            class_="stat-grid"
+        )
 
     @output
     @render.ui

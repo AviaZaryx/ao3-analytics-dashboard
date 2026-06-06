@@ -1,9 +1,9 @@
 # AO3 Brand Colors
-AO3_RED = "#9f1d20"
-AO3_DARK_RED = "#781214"
+AO3_RED = "#990000"
+AO3_DARK_RED = "#6f0000"
 AO3_INK = "#1f1f24"
 AO3_MUTED = "#64646f"
-BG_LIGHT = "#f6f4f1"
+BG_LIGHT = "#faf8f6"
 
 # Custom CSS
 CSS = f"""
@@ -20,15 +20,15 @@ CSS = f"""
     body {{
         background: var(--ao3-bg);
         color: var(--ao3-ink);
-        font-family: Inter, "Segoe UI", Arial, sans-serif;
+        font-family: "DM Sans", "Segoe UI", Arial, sans-serif;
         font-size: 0.95rem;
     }}
 
     .navbar {{
-        background-color: var(--ao3-red) !important;
+        background: linear-gradient(90deg, var(--ao3-dark-red), var(--ao3-red)) !important;
         border-bottom: 1px solid var(--ao3-dark-red);
         box-shadow: 0 2px 10px rgba(31, 31, 36, 0.14);
-        min-height: 48px;
+        min-height: 52px;
     }}
 
     .navbar-brand {{
@@ -46,6 +46,12 @@ CSS = f"""
         line-height: 1;
     }}
 
+    .app-title span {{
+        font-family: "Lora", Georgia, serif;
+        font-weight: 700;
+        letter-spacing: 0;
+    }}
+
     .app-title-logo {{
         width: 26px;
         height: 26px;
@@ -60,8 +66,12 @@ CSS = f"""
         gap: 1rem;
     }}
 
+    .bslib-sidebar-layout > .main {{
+        padding-top: 1rem;
+    }}
+
     .sidebar {{
-        background: #f0ebe5;
+        background: #f3eee9;
         border-right: 1px solid var(--ao3-border);
         box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.55);
     }}
@@ -76,8 +86,10 @@ CSS = f"""
 
     .sidebar h3 {{
         color: var(--ao3-ink);
-        font-size: 1rem;
-        font-weight: 700;
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
         margin: 1.4rem 0 0.75rem;
     }}
 
@@ -117,6 +129,64 @@ CSS = f"""
     .irs--shiny .irs-handle {{
         border-color: var(--ao3-red);
         background: #fff;
+    }}
+
+    .form-check-input:checked {{
+        background-color: var(--ao3-red);
+        border-color: var(--ao3-red);
+    }}
+
+    .dashboard-breadcrumb {{
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        color: var(--ao3-muted);
+        font-size: 0.84rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        margin: 0.15rem 0 0.85rem;
+    }}
+
+    .breadcrumb-separator {{
+        color: #a59a91;
+        font-weight: 600;
+    }}
+
+    .breadcrumb-current {{
+        color: var(--ao3-red);
+    }}
+
+    .stat-grid {{
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.85rem;
+        margin-bottom: 1rem;
+    }}
+
+    .stat-card {{
+        background: #ffffff;
+        border: 1px solid #e2d9d1;
+        border-top: 4px solid var(--ao3-red);
+        border-radius: 8px;
+        padding: 0.85rem 1rem;
+        box-shadow: 0 8px 20px rgba(31, 31, 36, 0.07);
+    }}
+
+    .stat-label {{
+        color: var(--ao3-muted);
+        font-size: 0.74rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        margin-bottom: 0.3rem;
+    }}
+
+    .stat-value {{
+        color: var(--ao3-ink);
+        font-family: "Lora", Georgia, serif;
+        font-size: 1.42rem;
+        font-weight: 700;
+        line-height: 1.15;
     }}
 
     .nav-tabs {{
@@ -218,6 +288,18 @@ CSS = f"""
 
     .cluster-plot-wrap {{
         padding: 0 0.85rem 0.85rem;
+    }}
+
+    @media (max-width: 1100px) {{
+        .stat-grid {{
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }}
+    }}
+
+    @media (max-width: 700px) {{
+        .stat-grid {{
+            grid-template-columns: 1fr;
+        }}
     }}
 """
 

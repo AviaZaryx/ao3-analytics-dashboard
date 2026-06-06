@@ -33,24 +33,24 @@ def apply_figure_theme(fig):
     fig.update_layout(
         template="plotly_white",
         paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="#fbfaf8",
-        font=dict(family='Inter, "Segoe UI", Arial, sans-serif', size=12, color="#34343b"),
-        title_font=dict(size=17, color=AO3_INK),
+        plot_bgcolor="#fffdfb",
+        font=dict(family='"DM Sans", "Segoe UI", Arial, sans-serif', size=12, color="#34343b"),
+        title_font=dict(family='"Lora", Georgia, serif', size=18, color=AO3_INK),
         hoverlabel=dict(
             bgcolor="#ffffff",
             bordercolor="#d8d0c8",
-            font=dict(size=12, family='Inter, "Segoe UI", Arial, sans-serif', color="#25252b")
+            font=dict(size=12, family='"DM Sans", "Segoe UI", Arial, sans-serif', color="#25252b")
         ),
         legend=dict(font=dict(size=11), title_font=dict(size=11))
     )
     fig.update_xaxes(
-        gridcolor="#eee7df",
+        gridcolor="#f0e8e8",
         zerolinecolor="#ddd4cb",
         linecolor="#d8d0c8",
         tickfont=dict(color="#55555f")
     )
     fig.update_yaxes(
-        gridcolor="#eee7df",
+        gridcolor="#f0e8e8",
         zerolinecolor="#ddd4cb",
         linecolor="#d8d0c8",
         tickfont=dict(color="#55555f")
@@ -508,7 +508,7 @@ def create_cluster_scatter_plot(df, percentage):
     fig.update_traces(
         marker=dict(size=4.8, line=dict(width=0)),
         hovertemplate=(
-            "<b>%{customdata[2]}</b><br>"
+            "<span style='color:#990000'><b>%{customdata[2]}</b></span><br>"
             "Fandom: %{customdata[0]}<br>"
             "Tags: %{customdata[1]}"
             "<extra></extra>"
@@ -529,7 +529,7 @@ def create_cluster_scatter_plot(df, percentage):
         xaxis=dict(
             title="",
             showgrid=True,
-            gridcolor="#eeeeee",
+            gridcolor="#f0e8e8",
             zeroline=False,
             showticklabels=False,
             ticks=""
@@ -537,7 +537,7 @@ def create_cluster_scatter_plot(df, percentage):
         yaxis=dict(
             title="",
             showgrid=True,
-            gridcolor="#eeeeee",
+            gridcolor="#f0e8e8",
             zeroline=False,
             showticklabels=False,
             ticks=""

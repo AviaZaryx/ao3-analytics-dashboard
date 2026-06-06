@@ -44,4 +44,19 @@ data/
 ├── embeddings.npy               # Vector embeddings
 ├── pca_coords.npy               # Reduced dimensions 
 └── work_clusters.csv            # Final data with assigned cluster labels
+```
 
+## Run the Dashboard
+After installing the required Python packages and placing the data files in the correct `data/` folder, open **Git Bash** in the project root and run:
+
+```bash
+shiny run --reload app.py
+```
+
+The dashboard will start locally. Open the URL shown in the terminal, usually:
+
+```text
+http://127.0.0.1:8000
+```
+
+Keep the Git Bash window open while using the dashboard. Press `Ctrl+C` in Git Bash to stop the server.
