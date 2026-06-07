@@ -1,141 +1,436 @@
-# ╔══════════════════════════════════════════════════════════════════════════╗
-# ║  ⚙️  GLOBAL CONFIGURATION — edit ONLY this cell before running         ║
-# ╚══════════════════════════════════════════════════════════════════════════╝
+import base64
+import io
 import os
-import pickle
-import hashlib
-import time
-from pathlib import Path
-from functools import wraps
+import pandas as pd
+from shiny import App, render, ui, reactive
+from shinywidgets import output_widget, render_widget
+from datetime import timedelta
+import matplotlib.pyplot as plt
 
-# ── Paths ──────────────────────────────────────────────────────────────────
-DATA_FOLDER = r"C:\Users\PC\Downloads\data_minig\ao3_scrape_files"   # ← CHANGE THIS
-CACHE_DIR   = r"C:\Users\PC\Downloads\data_minig\full_cache"
+# Import modules
+from utils.data_loader import load_clean_data
+from utils.data_processing import filter_by_inputs, get_tag_stats, get_fandom_split_stats, get_correlation_data, \
+    get_emotion_stats, get_emotional_radar_data, get_time_series_stats, get_fandom_over_time
+from utils.charts import create_tag_bar_chart, create_fandom_stacked_chart, get_word_cloud_object, \
+    create_correlation_heatmap, create_emotion_bar_chart, create_emotion_radar_chart, create_sentiment_success_plot, \
+    create_fandom_evolution_chart, create_metric_over_time_chart, create_cluster_scatter_plot
+from utils.styles import CSS as STYLES
 
-# ── Sampling  (NLP + ML only — keeps runtime < 10 min on 840k works) ──────
-NLP_SAMPLE_N = 30_000   # top-N works by kudos for NLP feature extraction
-ML_SAMPLE_N  = 50_000   # top-N works by kudos for ML training + clustering
+# --- INITIALIZATION ---
+BASE_DIR = os.path.dirname(__file__)
+DATA_PATH = os.path.join(BASE_DIR, "data", "cleaned_ao3_data.csv")
+NSFW_PATH = os.path.join(BASE_DIR, "data", "nsfw", "nsfw_works.csv")
+LOGO_PATH = os.path.join(BASE_DIR, "Logo_Archive_of_Our_Own.svg.png")
 
-# ── Association Rule Mining ────────────────────────────────────────────────
-ARM_TOP_TAGS       = 300    # restrict to top-N most frequent normalised tags
-ARM_MIN_SUPPORT    = 0.01   # tag-set must appear in ≥ 1% of works in fandom
-ARM_MIN_CONFIDENCE = 0.30
-ARM_MIN_LIFT       = 1.50   # only surface rules with meaningful lift
 
-# ── Machine Learning ───────────────────────────────────────────────────────
-K_CLUSTERS       = 5     # K-Means archetypes per fandom
-RF_N_ESTIMATORS  = 200
-TOP_TAG_FEATURES = 100   # top normalised tags as binary ML features
+def image_data_uri(path):
+    if not os.path.exists(path):
+        return ""
 
-# ── Focus fandom (None = all fandoms shown together) ──────────────────────
-FANDOM_FOCUS = None
+    with open(path, "rb") as image_file:
+        encoded = base64.b64encode(image_file.read()).decode("ascii")
 
-# ── Tag Normalisation Toggle ──────────────────────────────────────────────
-ENABLE_TAG_COLLAPSE = True   # Set to True for full collapse (optimized now)
-USE_CACHED_TAGS = True       # Use cached normalised tags if available
+    return f"data:image/png;base64,{encoded}"
 
-# ─── Keyword Groups for Tag Normalisation ────────────────────────────────
-# Format:  "Canonical Name": ["keyword1", "keyword2", ...]
-# A tag is renamed to the group whose keyword appears anywhere in it (case-insensitive).
-# ORDER MATTERS — first matching group wins.
-KEYWORD_GROUPS = {
-    "Fluff":                ["fluff", "fluffy", "tooth-rotting", "warm and fuzzy",
-                             "soft", "cute", "adorable", "wholesome"],
-    "Angst":                ["angst", "angsty", "heartbreak", "heartache",
-                             "grief", "sorrow", "tragedy", "sad", "depressing"],
-    "Hurt/Comfort":         ["hurt/comfort", "hurt comfort", "h/c", "whump",
-                             "comfort", "recovery", "healing"],
-    "Romance":              ["romance", "romantic", "slow burn", "love",
-                             "confession", "dating", "courtship", "marriage",
-                             "established relationship"],
-    "Smut / Explicit":      ["smut", "lemon", "nsfw", "porn", "erotic",
-                             "sexual", "explicit content", "sex scene"],
-    "Action / Adventure":   ["action", "adventure", "fight", "battle",
-                             "war", "mission", "quest", "combat"],
-    "Alternate Universe":   ["alternate universe", " au ", "modern au",
-                             "coffee shop", "college au", "high school au",
-                             "no powers", "canon divergence"],
-    "Humor / Crack":        ["humor", "humour", "crack", "comedy", "funny",
-                             "parody", "satire", "silly"],
-    "Family / Friendship":  ["family", "friendship", "found family",
-                             "platonic", "siblings", "parental", "brotp"],
-    "Dark / Horror":        ["dark", "horror", "gore", "violence",
-                             "disturbing", "death", "murder", "torture", "trauma"],
-    "Mystery / Thriller":   ["mystery", "thriller", "detective", "crime",
-                             "suspense", "investigation"],
-    "Time Travel / Fix-It": ["time travel", "fix-it", "fixit", "second chance",
-                             "do-over", "redo", "time loop"],
-    "Character Study":      ["character study", "introspection",
-                             "character exploration", "character development"],
-    "Crossover":            ["crossover", "cross-over", "fusion", "multiverse"],
-    "Original Characters":  ["original character", " oc ", "original protagonist",
-                             "self-insert"],
-    "Angst + Happy Ending": ["angst with a happy ending", "happy ending",
-                             "bittersweet"],
-    "Memory / Amnesia":     ["memory", "amnesia", "memory loss", "forgotten",
-                             "forgetting"],
-    "Enemies to Lovers":    ["enemies to lovers", "enemies-to-lovers",
-                             "rivals to lovers", "hate to love"],
-    "Fake Dating":          ["fake dating", "fake relationship",
-                             "pretend", "fake marriage"],
-    "Soulmate":             ["soulmate", "soul bond", "soulbond",
-                             "destined", "fated"],
-    # NSFW Content Filtering
-    "Mature / Explicit":    ["mature", "explicit", "adult content", "adult themes"],
-    "Violence / Gore":      ["violence", "gore", "blood", "torture", "death",
-                             "murder", "killing", "blood and gore"],
-    "Sexual Content":       ["sexual content", "sex", "intercourse", "penetration",
-                             "oral sex", "anal sex", "vaginal sex", "hand job",
-                             "blow job", "cunnilingus", "rimming", "masturbation"],
-    "Underage":             ["underage", "underage sex", "underage character"],
-    "Rape/Non-Con":         ["rape", "non-con", "nonconsensual", "dub-con", 
-                             "dubious consent", "sexual assault"],
-}
 
-# NSFW tag markers for filtering
-NSFW_TAG_MARKERS = [
-    "smut", "explicit", "porn", "erotic", "sexual", "sex scene",
-    "mature", "adult content", "violence", "gore", "blood", "torture",
-    "oral sex", "anal sex", "vaginal sex", "blow job", "hand job",
-    "cunnilingus", "rimming", "masturbation", "underage", "rape", "non-con",
-    "dub-con", "dubious consent", "sexual assault", "incest", "kink",
-    "bdsm", "bondage", "dominance", "submission", "spanking", "choking"
-]
+LOGO_URI = image_data_uri(LOGO_PATH)
 
-os.makedirs(CACHE_DIR, exist_ok=True)
+dataframe, fandom_dict, min_date, max_date = load_clean_data(DATA_PATH, NSFW_PATH)
 
-# ── Caching Utility ────────────────────────────────────────────────────────
-def cache_result(cache_name, force_recompute=False):
-    """Decorator to cache function results to disk."""
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            cache_path = Path(CACHE_DIR) / f"{cache_name}.pkl"
-            
-            if not force_recompute and cache_path.exists():
-                print(f"  Loading cached: {cache_name}")
-                with open(cache_path, 'rb') as f:
-                    return pickle.load(f)
-            
-            print(f"  Computing: {cache_name}...")
-            start = time.time()
-            result = func(*args, **kwargs)
-            elapsed = time.time() - start
-            print(f"    Completed in {elapsed:.2f}s")
-            
-            with open(cache_path, 'wb') as f:
-                pickle.dump(result, f)
-            
-            return result
-        return wrapper
-    return decorator
+# --- UI ---
+dashboard_ui = ui.page_sidebar(
+    ui.sidebar(
+        ui.markdown("### Fandom Filter"),
+        ui.input_selectize("fandom_select", "Select Fandom(s):",
+                           choices={"Global": "Global (All Fandoms)"} | fandom_dict,
+                           multiple=True),
+        ui.input_slider("date_range", "Date Range:", min=min_date, max=max_date,
+                        value=[min_date, max_date]),
+        ui.hr(),
+        ui.markdown("### Analysis Settings"),
+        ui.input_radio_buttons("nsfw_filter", "Content Filter:",
+                               choices=["All", "SFW Only", "NSFW Only"],
+                               selected="All", inline=True),
+        ui.input_select("metric", "Metric:",
+                        choices={"hits": "Hits", "kudos": "Kudos", "bookmarks": "Bookmarks",
+                                 "comments": "Comments", "word_count": "Word Count"}),
+        ui.input_numeric("top_n_tags", "Top N Tags (Bar Chart):", value=20, min=5, max=50),
+        ui.input_slider("top_n_fandoms", "Top N Fandoms:", min=5, max=50, value=10),
 
-print("✓ Configuration loaded")
-print(f"  DATA_FOLDER    = {DATA_FOLDER}")
-print(f"  CACHE_DIR      = {CACHE_DIR}")
-print(f"  NLP_SAMPLE_N   = {NLP_SAMPLE_N:,}  |  ML_SAMPLE_N = {ML_SAMPLE_N:,}")
-print(f"  ARM top tags   = {ARM_TOP_TAGS}   |  min_support = {ARM_MIN_SUPPORT}")
-print(f"  K_CLUSTERS     = {K_CLUSTERS}")
-print(f"  FANDOM_FOCUS   = {FANDOM_FOCUS or 'All fandoms'}")
-print(f"  Keyword groups = {len(KEYWORD_GROUPS)} defined")
-print(f"  Caching enabled: {CACHE_DIR}")
+        ui.hr(),
+        ui.markdown("### Word Cloud Tools"),
+        ui.input_select("wc_shape", "Word Cloud Shape:",
+                        choices=["Simple Circle", "AO3 Logo"]),
+
+        ui.hr(),
+        ui.markdown("### Percentage of points (ML)"),
+        ui.input_select("percentage", "Percentage:",
+                        choices=["1%", "2%", "5%", "10%", "20%", "50%", "100%"]),
+
+        title="Controls",
+        width=350,
+        open="always"
+    ),
+
+    ui.head_content(
+        ui.tags.link(rel="preconnect", href="https://fonts.googleapis.com"),
+        ui.tags.link(rel="preconnect", href="https://fonts.gstatic.com", crossorigin=""),
+        ui.tags.link(
+            rel="stylesheet",
+            href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Lora:wght@600;700&display=swap"
+        ),
+        ui.tags.link(rel="icon", type="image/png", href=LOGO_URI),
+        ui.tags.link(rel="shortcut icon", type="image/png", href=LOGO_URI),
+        ui.tags.link(rel="apple-touch-icon", href=LOGO_URI),
+        ui.tags.style(STYLES)
+    ),
+
+    ui.output_ui("breadcrumb"),
+    ui.output_ui("summary_cards"),
+
+    ui.navset_tab(
+        ui.nav_panel(
+            "Tag Analysis",
+            ui.card(
+                ui.card_header(
+                    ui.div(
+                        ui.div(ui.output_ui("dynamic_tag_title")),
+                        ui.div(ui.output_ui("tag_count_ref"), style="font-weight: normal; opacity: 0.8;"),
+                        style="display: flex; justify-content: space-between; align-items: center; width: 100%;"
+                    )
+                ),
+                ui.output_ui("tags_plot_container"),
+                full_screen=True
+            )
+        ),
+        ui.nav_panel(
+            "Fandom Distribution",
+            ui.card(
+                ui.markdown(
+                    """
+                    ### Content Definitions
+                    *   **SFW (Safe For Work):** Works rated 'General Audiences' or 'Teen And Up Audiences'. Generally focus on plot, romance, or platonic themes without explicit sexual content.
+                    *   **NSFW (Not Safe For Work):** Works rated 'Mature' or 'Explicit'. Often contain graphic violence or explicit sexual content.
+                    """
+                ),
+                style="background-color: #f8f9fa; border-left: 5px solid #d92b2b;"
+            ),
+
+            ui.layout_column_wrap(
+                ui.card(
+                    ui.card_header(
+                        "Content Volume",
+                        ui.div(
+                            ui.div(ui.output_ui("tag_count_ref1"), style="font-weight: normal; opacity: 0.8;"),
+                            style="display: flex; justify-content: flex-end; align-items: center; width: 100%;"
+                        )
+                    ),
+                    output_widget("fandom_volume_chart"),
+                    full_screen=True
+                ),
+                ui.card(
+                    ui.card_header("Content Ratio",
+                        ui.div(
+                            ui.div(ui.output_ui("tag_count_ref2"), style="font-weight: normal; opacity: 0.8;"),
+                            style="display: flex; justify-content: flex-end; align-items: center; width: 100%;"
+                        )
+                    ),
+                    output_widget("fandom_ratio_chart"),
+                    full_screen=True
+                ),
+                width=1 / 2
+            )
+        ),
+        ui.nav_panel(
+            "Word Cloud",
+            ui.card(
+                ui.card_header("Word Cloud"),
+                ui.output_plot("word_cloud_preview", height="800px"),
+                full_screen=True
+            )
+        ),
+        ui.nav_panel(
+            "Impact Analysis",
+            ui.card(
+                ui.card_header("Tag Correlation Matrix"),
+                ui.markdown("""
+                    **How to read this:** Values closer to **1.0 (Red)** mean the tag (or pair of tags) 
+                    strongly correlates with higher success in the chosen metric. 
+                    Values near **0** mean no relationship.
+                """),
+                output_widget("correlation_chart"),
+                full_screen=True
+            )
+        ),
+        ui.nav_panel(
+            "Sentiment Profile",
+            ui.markdown("""
+                    > **Note:** This analysis is performed on work summaries only, 
+                    not the full body text. It represents the "hook" or intended vibe presented by the author.
+                """),
+            ui.layout_column_wrap(
+                ui.card(
+                    ui.card_header("Dominant Emotion Counts"),
+                    ui.markdown("Counts how many works have each emotion as their single strongest primary tone."),
+                    output_widget("emotion_chart"),
+                    full_screen=True
+                ),
+                ui.card(
+                    ui.card_header("Emotional Fingerprint"),
+                    ui.markdown("Measures the total score of every emotion, showing the collective atmosphere of the fandom."),
+                    output_widget("radar_chart"),
+                    full_screen=True
+                ),
+                width=1 / 2
+            ),
+            ui.card(
+                ui.card_header("Impact on Success"),
+                ui.markdown("Compares the median success of works to see which primary emotions drive the most reader engagement."),
+                output_widget("sentiment_success_chart"),
+                full_screen=True
+            )
+        ),
+        ui.nav_panel(
+            "Temporal Trends",
+            ui.layout_column_wrap(
+                ui.card(
+                    ui.card_header("Growth & Engagement Over Time"),
+                    ui.input_select("time_unit", "Time Resolution:",
+                                    choices={"Y": "Yearly", "M": "Monthly"}),
+                    output_widget("time_series_chart"),
+                    full_screen=True
+                ),
+                ui.card(
+                    ui.card_header("Fandom Landscape Shift"),
+                    ui.input_slider("numFan", "Fandoms:", min=5, max=50, value=10),
+                    ui.markdown("Shows how the volume of top fandoms has changed over time."),
+                    output_widget("fandom_evolution_chart"),
+                    full_screen=True
+                ),
+                width=1
+            )
+        ),
+        ui.nav_panel(
+            "Clustering (ML)",
+            ui.card(
+                ui.card_header("Works Clustering",
+                    ui.div(
+                        ui.div(ui.output_ui("tag_count_ref3"), style="font-weight: normal; opacity: 0.8;"),
+                        style="display: flex; justify-content: flex-end; align-items: center; width: 100%;"
+                    )
+                ),
+                ui.div(
+                    ui.span("PCA map of semantically related works"),
+                    ui.span(ui.output_ui("cluster_sample_note")),
+                    class_="cluster-meta"
+                ),
+                ui.div(output_widget("ml_cluster_chart"), class_="cluster-plot-wrap"),
+                full_screen=True,
+                class_="cluster-card"
+            )
+        ),
+        id="main_nav"
+    ),
+    title=ui.div(
+        ui.img(src=LOGO_URI, alt="AO3 logo", class_="app-title-logo"),
+        ui.span("AO3 Analytics Dashboard"),
+        class_="app-title"
+    )
+)
+
+
+def server(input, output, session):
+    @reactive.calc
+    def tag_data():
+        return filter_by_inputs(dataframe, input.fandom_select(), input.date_range(), input.nsfw_filter())
+
+    def fmt_number(value):
+        if value is None or pd.isna(value):
+            return "N/A"
+
+        return f"{int(round(value)):,}"
+
+    @output
+    @render.ui
+    def breadcrumb():
+        current_tab = input.main_nav() or "Tag Analysis"
+        return ui.div(
+            ui.span("Works"),
+            ui.span("›", class_="breadcrumb-separator"),
+            ui.span(current_tab, class_="breadcrumb-current"),
+            class_="dashboard-breadcrumb"
+        )
+
+    @output
+    @render.ui
+    def summary_cards():
+        d = tag_data()
+        total_works = len(d) if d is not None else 0
+
+        cluster_count = 0
+        largest_cluster = 0
+        if d is not None and not d.empty and "cluster" in d.columns:
+            clusters = pd.to_numeric(d["cluster"], errors="coerce").dropna()
+            cluster_count = clusters.nunique()
+            if not clusters.empty:
+                largest_cluster = clusters.value_counts().max()
+
+        avg_hits = None
+        if d is not None and not d.empty and "hits" in d.columns:
+            avg_hits = pd.to_numeric(d["hits"], errors="coerce").mean()
+
+        cards = [
+            ("Total Works", f"{total_works:,}"),
+            ("Clusters", f"{int(cluster_count):,}"),
+            ("Avg Hits", fmt_number(avg_hits)),
+            ("Largest Cluster", f"{int(largest_cluster):,}"),
+        ]
+
+        return ui.div(
+            *[
+                ui.div(
+                    ui.div(label, class_="stat-label"),
+                    ui.div(value, class_="stat-value"),
+                    class_="stat-card"
+                )
+                for label, value in cards
+            ],
+            class_="stat-grid"
+        )
+
+    @output
+    @render.ui
+    def dynamic_tag_title():
+        m = input.metric().replace("_", " ").title()
+        return f"Top Tags by Total {m}"
+
+    @output
+    @render.ui
+    def tag_count_ref():
+        return f"{len(tag_data()):,} works"
+
+    @output
+    @render.ui
+    def tag_count_ref1():
+        return f"{len(tag_data()):,} works"
+
+    @output
+    @render.ui
+    def tag_count_ref2():
+        return f"{len(tag_data()):,} works"
+
+    @output
+    @render.ui
+    def tag_count_ref3():
+        percentage = input.percentage() or "1%"
+        try:
+            percent = int(str(percentage).replace("%", ""))
+        except ValueError:
+            percent = 1
+
+        percent = min(max(percent, 1), 100)
+        return f"{round((percent / 100) * len(tag_data())):,} works"
+
+    @output
+    @render.ui
+    def cluster_sample_note():
+        percentage = input.percentage() or "1%"
+        return f"{percentage} sample"
+
+    @output
+    @render.ui
+    def tags_plot_container():
+        return output_widget("tags_chart")
+
+    @output
+    @render_widget
+    def tags_chart():
+        d = tag_data()
+        stats = get_tag_stats(d, input.metric(), input.top_n_tags())
+        return create_tag_bar_chart(stats, input.metric())
+
+    @output
+    @render_widget
+    def fandom_volume_chart():
+        d = filter_by_inputs(dataframe, input.fandom_select(), input.date_range(), "All")
+        stats, order = get_fandom_split_stats(d, input.top_n_fandoms())
+        return create_fandom_stacked_chart(stats, order, mode="count")
+
+    @output
+    @render_widget
+    def fandom_ratio_chart():
+        d = filter_by_inputs(dataframe, input.fandom_select(), input.date_range(), "All")
+        stats, order = get_fandom_split_stats(d, input.top_n_fandoms())
+        return create_fandom_stacked_chart(stats, order, mode="relative")
+
+    @output
+    @render.plot
+    def word_cloud_preview():
+        d = tag_data()
+        stats = get_tag_stats(d, input.metric(), 150)
+
+        wc = get_word_cloud_object(stats, input.wc_shape(), LOGO_PATH, high_res=False)
+
+        if not wc: return None
+        fig, ax = plt.subplots(figsize=(10, 8))
+        ax.imshow(wc, interpolation='bilinear')
+        ax.axis("off")
+        return fig
+
+    @output
+    @render_widget
+    def correlation_chart():
+        d = tag_data()
+
+        corr_matrix = get_correlation_data(d, input.metric(), input.top_n_tags())
+
+        return create_correlation_heatmap(corr_matrix, input.metric())
+
+    @output
+    @render_widget
+    def emotion_chart():
+        d = tag_data()
+        stats = get_emotion_stats(d)
+        return create_emotion_bar_chart(stats)
+
+    @output
+    @render_widget
+    def radar_chart():
+        d = tag_data()
+        radar_stats = get_emotional_radar_data(d)
+        return create_emotion_radar_chart(radar_stats)
+
+    @output
+    @render_widget
+    def sentiment_success_chart():
+        d = tag_data()
+        return create_sentiment_success_plot(d, input.metric())
+
+    @output
+    @render_widget
+    def time_series_chart():
+        d = tag_data()
+        stats = get_time_series_stats(d, input.metric(), input.time_unit())
+        return create_metric_over_time_chart(stats, input.metric())
+
+    @output
+    @render_widget
+    def fandom_evolution_chart():
+        d = tag_data()
+
+        if d is None or d.empty:
+            return None
+
+        n_fandoms = int(input.numFan())
+
+        stats = get_fandom_over_time(d, top_n=n_fandoms)
+        return create_fandom_evolution_chart(stats)
+
+    @output
+    @render_widget
+    def ml_cluster_chart():
+        d = tag_data()
+        return create_cluster_scatter_plot(d, input.percentage())
+
+
+app = App(dashboard_ui, server)
